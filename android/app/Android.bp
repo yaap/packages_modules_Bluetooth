@@ -166,7 +166,7 @@ android_app {
         "--custom-package",
         "com.android.bluetooth",
     ],
-    certificate: ":com.android.bluetooth.certificate",
+    certificate: "bluetooth",
 
     jarjar_rules: ":bluetooth-jarjar-rules",
 
@@ -280,6 +280,7 @@ genrule {
         " --minApiLevel 33",
     out: ["com/android/bluetooth/BluetoothStatsLog.java"],
 }
+<<<<<<< HEAD
 
 genrule {
     name: "statslog-bt-restricted-java-gen",
@@ -294,3 +295,5 @@ android_app_certificate {
     name: "com.android.bluetooth.certificate",
     certificate: "certs/com.android.bluetooth",
 }
+=======
+>>>>>>> 2437777fb1 (bluetooth: abandon app local certificate)
