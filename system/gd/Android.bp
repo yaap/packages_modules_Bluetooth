@@ -8,6 +8,25 @@ package {
     default_applicable_licenses: ["system_bt_license"],
 }
 
+soong_config_module_type {
+    name: "le_bluetooth_configs",
+    module_type: "cc_defaults",
+    config_namespace: "androidBluetoothVars",
+    bool_variables: ["le_disable_read_buffer_size_and_set_host"],
+    properties: [
+        "cflags",
+    ],
+}
+
+le_bluetooth_configs {
+    name: "le_bluetooth_configs_defaults",
+    soong_config_variables: {
+        le_disable_read_buffer_size_and_set_host: {
+            cflags: ["-DDISABLE_LE_READ_BUFFER_SIZE_AND_SET_HOST"],
+        },
+    },
+}
+
 cc_defaults {
     name: "gd_defaults",
     tidy_checks: [
@@ -136,6 +155,7 @@ cc_defaults {
         "gd_defaults",
         "gd_clang_file_coverage",
         "libchrome_support_defaults",
+        "le_bluetooth_configs_defaults",
     ],
     host_supported: true,
     target: {
