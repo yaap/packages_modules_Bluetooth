@@ -541,15 +541,6 @@ void l2cble_process_sig_cmd(tL2C_LCB* p_lcb, uint8_t* p, uint16_t pkt_len) {
           "num_of_channels = %d",
           mtu, mps, initial_credit, num_of_channels);
 
-      if (p_lcb->pending_ecoc_conn_cnt > 0) {
-        LOG_WARN("L2CAP - L2CAP_CMD_CREDIT_BASED_CONN_REQ collision:");
-        l2cu_reject_credit_based_conn_req(p_lcb, id, num_of_channels,
-                                          L2CAP_LE_RESULT_NO_RESOURCES);
-        return;
-      }
-
-      p_lcb->pending_ecoc_conn_cnt = num_of_channels;
-
       /* Check PSM Support */
       p_rcb = l2cu_find_ble_rcb_by_psm(con_info.psm);
       if (p_rcb == NULL) {
@@ -558,6 +549,19 @@ void l2cble_process_sig_cmd(tL2C_LCB* p_lcb, uint8_t* p, uint16_t pkt_len) {
                                           L2CAP_LE_RESULT_NO_PSM);
         return;
       }
+
+      if (p_lcb->pending_ecoc_conn_cnt > 0) {
+        LOG_WARN("L2CAP - L2CAP_CMD_CREDIT_BASED_CONN_REQ collision:");
+        if (p_rcb->api.pL2CA_CreditBasedCollisionInd_Cb &&
+            con_info.psm == BT_PSM_EATT) {
+          (*p_rcb->api.pL2CA_CreditBasedCollisionInd_Cb)(p_lcb->remote_bd_addr);
+        }
+        l2cu_reject_credit_based_conn_req(p_lcb, id, num_of_channels,
+                                          L2CAP_LE_RESULT_NO_RESOURCES);
+        return;
+      }
+
+      p_lcb->pending_ecoc_conn_cnt = num_of_channels;
 
       if (!p_rcb->api.pL2CA_CreditBasedConnectInd_Cb) {
         LOG_WARN("L2CAP - rcvd conn req for outgoing-only connection PSM: %d",
@@ -669,6 +673,7 @@ void l2cble_process_sig_cmd(tL2C_LCB* p_lcb, uint8_t* p, uint16_t pkt_len) {
        * all the channels has been rejected
        */
       if (con_info.l2cap_result == L2CAP_LE_RESULT_NO_PSM ||
+          con_info.l2cap_result == L2CAP_LE_RESULT_NO_RESOURCES ||
           con_info.l2cap_result ==
               L2CAP_LE_RESULT_INSUFFICIENT_AUTHENTICATION ||
           con_info.l2cap_result == L2CAP_LE_RESULT_INSUFFICIENT_ENCRYP ||
@@ -715,22 +720,28 @@ void l2cble_process_sig_cmd(tL2C_LCB* p_lcb, uint8_t* p, uint16_t pkt_len) {
       for (int i = 0; i < p_lcb->pending_ecoc_conn_cnt; i++) {
         uint16_t cid = p_lcb->pending_ecoc_connection_cids[i];
         STREAM_TO_UINT16(rcid, p);
-        /* if duplicated remote cid then disconnect original channel
-         * and current channel by sending event to upper layer */
-        temp_p_ccb = l2cu_find_ccb_by_remote_cid(p_lcb, rcid);
-        if (temp_p_ccb != nullptr) {
-          L2CAP_TRACE_ERROR(
-              "Already Allocated Destination cid. "
-              "rcid = %d "
-              "send peer_disc_req", rcid);
 
-          l2cu_send_peer_disc_req(temp_p_ccb);
+        if (rcid != 0) {
+          /* If remote cid is duplicated then disconnect original channel
+           * and current channel by sending event to upper layer
+           */
+          temp_p_ccb = l2cu_find_ccb_by_remote_cid(p_lcb, rcid);
+          if (temp_p_ccb != nullptr) {
+            L2CAP_TRACE_ERROR(
+                "Already Allocated Destination cid. "
+                "rcid = %d "
+                "send peer_disc_req",
+                rcid);
 
-          temp_p_ccb = l2cu_find_ccb_by_cid(p_lcb, cid);
-          con_info.l2cap_result = L2CAP_LE_RESULT_UNACCEPTABLE_PARAMETERS;
-          l2c_csm_execute(temp_p_ccb, L2CEVT_L2CAP_CREDIT_BASED_CONNECT_RSP_NEG,
-                          &con_info);
-          continue;
+            l2cu_send_peer_disc_req(temp_p_ccb);
+
+            temp_p_ccb = l2cu_find_ccb_by_cid(p_lcb, cid);
+            con_info.l2cap_result = L2CAP_LE_RESULT_UNACCEPTABLE_PARAMETERS;
+            l2c_csm_execute(temp_p_ccb,
+                            L2CEVT_L2CAP_CREDIT_BASED_CONNECT_RSP_NEG,
+                            &con_info);
+            continue;
+          }
         }
 
         temp_p_ccb = l2cu_find_ccb_by_cid(p_lcb, cid);

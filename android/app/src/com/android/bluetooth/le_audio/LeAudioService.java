@@ -105,12 +105,6 @@ public class LeAudioService extends ProfileService {
      */
     private static final int ACTIVE_CONTEXTS_NONE = 0;
 
-    /*
-     * Brodcast profile used by the lower layers
-     */
-    private static final int BROADCAST_PROFILE_SONIFICATION = 0;
-    private static final int BROADCAST_PROFILE_MEDIA = 1;
-
     private AdapterService mAdapterService;
     private DatabaseManager mDatabaseManager;
     private HandlerThread mStateMachinesThread;
@@ -126,6 +120,9 @@ public class LeAudioService extends ProfileService {
     @VisibleForTesting
     AudioManager mAudioManager;
     LeAudioTmapGattServer mTmapGattServer;
+
+    @VisibleForTesting
+    VolumeControlService mVolumeControlService;
 
     @VisibleForTesting
     RemoteCallbackList<IBluetoothLeBroadcastCallback> mBroadcastCallbacks;
@@ -384,6 +381,7 @@ public class LeAudioService extends ProfileService {
 
         mAdapterService = null;
         mAudioManager = null;
+        mVolumeControlService = null;
 
         return true;
     }
@@ -410,6 +408,18 @@ public class LeAudioService extends ProfileService {
             Log.d(TAG, "setLeAudioService(): set to: " + instance);
         }
         sLeAudioService = instance;
+    }
+
+    private int getGroupVolume(int groupId) {
+        if (mVolumeControlService == null) {
+            mVolumeControlService = mServiceFactory.getVolumeControlService();
+        }
+        if (mVolumeControlService == null) {
+            Log.e(TAG, "Volume control service is not available");
+            return -1;
+        }
+
+        return mVolumeControlService.getGroupVolume(groupId);
     }
 
     public boolean connect(BluetoothDevice device) {
@@ -646,8 +656,6 @@ public class LeAudioService extends ProfileService {
     /**
      * Creates LeAudio Broadcast instance.
      * @param metadata metadata buffer with TLVs
-     * @param audioProfile broadcast audio profile
-     * @param broadcastCode optional code if broadcast should be encrypted
      */
     public void createBroadcast(BluetoothLeAudioContentMetadata metadata, byte[] broadcastCode) {
         if (mLeAudioBroadcasterNativeInterface == null) {
@@ -655,7 +663,7 @@ public class LeAudioService extends ProfileService {
             return;
         }
         mLeAudioBroadcasterNativeInterface.createBroadcast(metadata.getRawMetadata(),
-                BROADCAST_PROFILE_MEDIA, broadcastCode);
+                broadcastCode);
     }
 
     /**
@@ -830,6 +838,7 @@ public class LeAudioService extends ProfileService {
                             + previousInDevice + ", mActiveAudioInDevice" + mActiveAudioInDevice
                             + " isLeOutput: false");
             }
+
             mAudioManager.handleBluetoothActiveDeviceChanged(mActiveAudioInDevice,previousInDevice,
                     BluetoothProfileConnectionInfo.createLeAudioInfo(false, false));
 
@@ -899,9 +908,14 @@ public class LeAudioService extends ProfileService {
                             + previousOutDevice + ", mActiveOutDevice: " + mActiveAudioOutDevice
                             + " isLeOutput: true");
             }
+            int volume = -1;
+            if (mActiveAudioOutDevice != null) {
+                volume = getGroupVolume(groupId);
+            }
+
             mAudioManager.handleBluetoothActiveDeviceChanged(mActiveAudioOutDevice,
                     previousOutDevice,
-                    BluetoothProfileConnectionInfo.createLeAudioInfo(suppressNoisyIntent, true));
+                    getLeAudioOutputProfile(suppressNoisyIntent, volume));
             return true;
         }
         Log.d(TAG, "updateActiveOutDevice: Nothing to do.");
@@ -1054,6 +1068,22 @@ public class LeAudioService extends ProfileService {
         }
     }
 
+    BluetoothProfileConnectionInfo getLeAudioOutputProfile(boolean suppressNoisyIntent,
+            int volume) {
+        /* TODO - b/236618595 */
+        Parcel parcel = Parcel.obtain();
+        parcel.writeInt(BluetoothProfile.LE_AUDIO);
+        parcel.writeBoolean(suppressNoisyIntent);
+        parcel.writeInt(volume);
+        parcel.writeBoolean(true /* isLeOutput */);
+        parcel.setDataPosition(0);
+
+        BluetoothProfileConnectionInfo profileInfo =
+                BluetoothProfileConnectionInfo.CREATOR.createFromParcel(parcel);
+        parcel.recycle();
+        return profileInfo;
+    }
+
     BluetoothProfileConnectionInfo getBroadcastProfile(boolean suppressNoisyIntent) {
         Parcel parcel = Parcel.obtain();
         parcel.writeInt(BluetoothProfile.LE_AUDIO_BROADCAST);
@@ -1062,7 +1092,10 @@ public class LeAudioService extends ProfileService {
         parcel.writeBoolean(true /* mIsLeOutput */);
         parcel.setDataPosition(0);
 
-        return BluetoothProfileConnectionInfo.CREATOR.createFromParcel(parcel);
+        BluetoothProfileConnectionInfo profileInfo =
+                BluetoothProfileConnectionInfo.CREATOR.createFromParcel(parcel);
+        parcel.recycle();
+        return profileInfo;
     }
 
     private void clearLostDevicesWhileStreaming(LeAudioGroupDescriptor descriptor) {
@@ -1766,9 +1799,11 @@ public class LeAudioService extends ProfileService {
             return;
         }
 
-        VolumeControlService service = mServiceFactory.getVolumeControlService();
-        if (service != null) {
-            service.setVolumeGroup(currentlyActiveGroupId, volume);
+        if (mVolumeControlService == null) {
+            mVolumeControlService = mServiceFactory.getVolumeControlService();
+        }
+        if (mVolumeControlService != null) {
+            mVolumeControlService.setGroupVolume(currentlyActiveGroupId, volume);
         }
     }
 

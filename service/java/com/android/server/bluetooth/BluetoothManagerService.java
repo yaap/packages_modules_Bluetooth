@@ -95,6 +95,7 @@ import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.PrintWriter;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -218,6 +219,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
     private final ReentrantReadWriteLock mBluetoothLock = new ReentrantReadWriteLock();
     private boolean mBinding;
     private boolean mUnbinding;
+    private List<Integer> mSupportedProfileList = new ArrayList<>();
 
     private BluetoothModeChangeHelper mBluetoothModeChangeHelper;
 
@@ -872,6 +874,25 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
         recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
     }
 
+    @GuardedBy("mBluetoothLock")
+    private List<Integer> synchronousGetSupportedProfiles(AttributionSource attributionSource)
+            throws RemoteException, TimeoutException {
+        final ArrayList<Integer> supportedProfiles = new ArrayList<Integer>();
+        if (mBluetooth == null) return supportedProfiles;
+        final SynchronousResultReceiver<Long> recv = SynchronousResultReceiver.get();
+        mBluetooth.getSupportedProfiles(attributionSource, recv);
+        final long supportedProfilesBitMask =
+                recv.awaitResultNoInterrupt(getSyncTimeout()).getValue((long) 0);
+
+        for (int i = 0; i <= BluetoothProfile.MAX_PROFILE_ID; i++) {
+            if ((supportedProfilesBitMask & (1 << i)) != 0) {
+                supportedProfiles.add(i);
+            }
+        }
+
+        return supportedProfiles;
+    }
+
     /**
      * Sends the current foreground user id to the Bluetooth process. This user id is used to
      * determine if Binder calls are coming from the active user.
@@ -1449,10 +1470,10 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
             ProfileServiceConnections psc = mProfileServices.get(new Integer(bluetoothProfile));
             Intent intent;
             if (bluetoothProfile == BluetoothProfile.HEADSET
-                    && BluetoothProperties.isProfileHfpAgEnabled().orElse(false)) {
+                    && mSupportedProfileList.contains(BluetoothProfile.HEADSET)) {
                 intent = new Intent(IBluetoothHeadset.class.getName());
             } else if (bluetoothProfile == BluetoothProfile.LE_CALL_CONTROL
-                    && BluetoothProperties.isProfileCcpServerEnabled().orElse(false)) {
+                    && mSupportedProfileList.contains(BluetoothProfile.LE_CALL_CONTROL)) {
                 intent = new Intent(IBluetoothLeCallControl.class.getName());
             } else {
                 return false;
@@ -2241,6 +2262,14 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                         //Inform BluetoothAdapter instances that service is up
                         sendBluetoothServiceUpCallback();
 
+                        // Get the supported profiles list
+                        try {
+                            mSupportedProfileList = synchronousGetSupportedProfiles(
+                                    mContext.getAttributionSource());
+                        } catch (RemoteException | TimeoutException e) {
+                            Log.e(TAG, "Unable to get the supported profiles list", e);
+                        }
+
                         //Do enable request
                         try {
                             if (!synchronousEnable(mQuietEnable, mContext.getAttributionSource())) {
@@ -2319,6 +2348,7 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                                 break;
                             }
                             mBluetooth = null;
+                            mSupportedProfileList.clear();
                         } else if (msg.arg1 == SERVICE_IBLUETOOTHGATT) {
                             mBluetoothGatt = null;
                             break;
@@ -2905,16 +2935,21 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
 
             String launcherActivity = "com.android.bluetooth.opp.BluetoothOppLauncherActivity";
 
-            PackageManager packageManager = mContext.createContextAsUser(userHandle, 0)
+            PackageManager systemPackageManager = mContext.getPackageManager();
+            PackageManager userPackageManager = mContext.createContextAsUser(userHandle, 0)
                                                         .getPackageManager();
-            var allPackages = packageManager.getPackagesForUid(Process.BLUETOOTH_UID);
+            var allPackages = systemPackageManager.getPackagesForUid(Process.BLUETOOTH_UID);
             for (String candidatePackage : allPackages) {
+                Log.v(TAG, "Searching package " + candidatePackage);
                 PackageInfo packageInfo;
                 try {
-                    // note: we need the package manager for the SYSTEM user, not our userHandle
-                    packageInfo = mContext.getPackageManager().getPackageInfo(
+                    packageInfo = systemPackageManager.getPackageInfo(
                         candidatePackage,
-                        PackageManager.PackageInfoFlags.of(PackageManager.GET_ACTIVITIES));
+                        PackageManager.PackageInfoFlags.of(
+                            PackageManager.GET_ACTIVITIES
+                            | PackageManager.MATCH_ANY_USER
+                            | PackageManager.MATCH_UNINSTALLED_PACKAGES
+                            | PackageManager.MATCH_DISABLED_COMPONENTS));
                 } catch (PackageManager.NameNotFoundException e) {
                     // ignore, try next package
                     Log.e(TAG, "Could not find package " + candidatePackage);
@@ -2927,11 +2962,12 @@ public class BluetoothManagerService extends IBluetoothManager.Stub {
                     continue;
                 }
                 for (var activity : packageInfo.activities) {
+                    Log.v(TAG, "Checking activity " + activity.name);
                     if (launcherActivity.equals(activity.name)) {
                         final ComponentName oppLauncherComponent = new ComponentName(
                                 candidatePackage, launcherActivity
                         );
-                        packageManager.setComponentEnabledSetting(
+                        userPackageManager.setComponentEnabledSetting(
                                 oppLauncherComponent, newState, PackageManager.DONT_KILL_APP
                         );
                         return;
