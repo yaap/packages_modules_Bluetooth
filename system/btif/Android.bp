@@ -186,6 +186,9 @@ cc_defaults {
         "-DBUILDCFG",
     ],
     host_supported: true,
+    lto: {
+       never: true,
+    },
 }
 
 cc_library_static {
