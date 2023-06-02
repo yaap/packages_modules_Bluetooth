@@ -27,7 +27,6 @@ import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
-import android.app.compat.gms.GmsCompat;
 import android.bluetooth.annotations.RequiresBluetoothConnectPermission;
 import android.bluetooth.annotations.RequiresBluetoothLocationPermission;
 import android.bluetooth.annotations.RequiresBluetoothScanPermission;
@@ -3193,11 +3192,6 @@ public final class BluetoothDevice implements Parcelable, Attributable {
             Log.e(TAG, "Bluetooth is not enabled. Cannot get metadata");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else {
-
-            if (GmsCompat.isEnabled()) {
-                return defaultValue;
-            }
-
             try {
                 final SynchronousResultReceiver<byte[]> recv = SynchronousResultReceiver.get();
                 service.getMetadata(this, key, mAttributionSource, recv);
