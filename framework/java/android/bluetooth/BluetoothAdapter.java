@@ -1246,8 +1246,9 @@ public final class BluetoothAdapter {
         }
 
         if (GmsCompat.isEnabled()) {
-            GmsModuleHooks.enableBluetoothAdapter();
-            return false;
+            if (!GmsModuleHooks.canEnableBluetoothAdapter()) {
+                return false;
+            }
         }
 
         try {
@@ -1457,8 +1458,9 @@ public final class BluetoothAdapter {
         }
 
         if (GmsCompat.isEnabled()) {
-            GmsModuleHooks.enableBluetoothAdapter();
-            return false;
+            if (!GmsModuleHooks.canEnableBluetoothAdapter()) {
+                return false;
+            }
         }
 
         try {
