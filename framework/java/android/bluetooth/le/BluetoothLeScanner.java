@@ -25,7 +25,6 @@ import android.annotation.RequiresPermission;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.app.PendingIntent;
-import android.app.compat.gms.GmsCompat;
 import android.bluetooth.Attributable;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothGatt;
@@ -242,13 +241,8 @@ public final class BluetoothLeScanner {
 
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_SCAN)
     private int startScan(List<ScanFilter> filters, ScanSettings settings,
-            WorkSource workSource, final ScanCallback callback,
+            final WorkSource workSource, final ScanCallback callback,
             final PendingIntent callbackIntent) {
-        if (GmsCompat.isEnabled()) {
-            // requires privileged UPDATE_DEVICE_STATS permission
-            workSource = null;
-        }
-        
         BluetoothLeUtils.checkAdapterStateOn(mBluetoothAdapter);
         if (callback == null && callbackIntent == null) {
             throw new IllegalArgumentException("callback is null");
