@@ -280,7 +280,6 @@ genrule {
         " --minApiLevel 33",
     out: ["com/android/bluetooth/BluetoothStatsLog.java"],
 }
-<<<<<<< HEAD
 
 genrule {
     name: "statslog-bt-restricted-java-gen",
@@ -290,10 +289,3 @@ genrule {
         " --minApiLevel 34",
     out: ["com/android/bluetooth/BtRestrictedStatsLog.java"],
 }
-
-android_app_certificate {
-    name: "com.android.bluetooth.certificate",
-    certificate: "certs/com.android.bluetooth",
-}
-=======
->>>>>>> 2437777fb1 (bluetooth: abandon app local certificate)
