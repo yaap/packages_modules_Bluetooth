@@ -200,6 +200,8 @@ class BluetoothManagerService {
 
     private int mErrorRecoveryRetryCounter = 0;
 
+    private boolean mIsMediaProfileConnected = false;
+
     // The code in mBluetoothCallback is running on Binder thread.
     // It must be posted on the local looper to prevent concurrent access.
     private final IBluetoothCallback mBluetoothCallback =
@@ -240,6 +242,7 @@ class BluetoothManagerService {
                 @Override
                 public void onMediaProfileConnectionChange(boolean connected) {
                     Log.d(TAG, "IBluetoothCallback.onMediaProfileConnectionChange: " + connected);
+                    mIsMediaProfileConnected = connected;
                     mHandler.post(
                             () -> {
                                 AirplaneModeListener.setIsMediaProfileConnected(connected);
@@ -905,7 +908,7 @@ class BluetoothManagerService {
         public void onAlarm() {
             if (mAdapter == null) return;
             if (!isEnabled()) return;
-            if (isMediaProfileConnected()) return;
+            if (mIsMediaProfileConnected) return;
             disable(TAG, true);
         }
     };
@@ -1978,6 +1981,7 @@ class BluetoothManagerService {
 
         if (prevState == State.ON) {
             autoOnSetupTimer();
+            mIsMediaProfileConnected = false;
             AirplaneModeListener.setIsMediaProfileConnected(false);
             AirplaneModeListener.setWatchConnectionState(false);
         }
