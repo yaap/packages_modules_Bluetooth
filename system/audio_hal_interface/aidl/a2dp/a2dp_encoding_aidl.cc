@@ -26,6 +26,8 @@
 #include "a2dp_encoding_aidl_utils.h"
 #include "a2dp_provider_info.h"
 #include "audio_aidl_interfaces.h"
+#include "btif/include/btif_av.h"
+#include "btif/include/btif_av_co.h"
 #include "client_interface_aidl.h"
 #include "codec_status_aidl.h"
 
@@ -68,6 +70,26 @@ std::unique_ptr<::bluetooth::audio::aidl::a2dp::ProviderInfo> provider_info;
 // Save the value if the remote reports its delay before this interface is
 // initialized
 uint16_t remote_delay = 0;
+
+// The A2DP offload HAL has no LHDCv5 CodecConfiguration variant. Keep hardware
+// offload for the codecs it supports, but use the software encoder and PCM data
+// path when LHDCV5 is selected.
+static bool use_hw_a2dp_offload() {
+  if (!btif_av_is_a2dp_offload_enabled()) {
+    return false;
+  }
+
+  A2dpCodecConfig* a2dp_config = bta_av_get_a2dp_current_codec();
+  if (a2dp_config == nullptr ||
+      a2dp_config->getCodecConfig().codec_type != BTAV_A2DP_CODEC_INDEX_SOURCE_LHDCV5) {
+    return true;
+  }
+
+  log::info(
+      "LHDCV5 selected; using software encoding because the offload HAL has no "
+      "LHDC codec configuration");
+  return false;
+}
 
 bool is_low_latency_mode_allowed = false;
 
@@ -117,7 +139,8 @@ bool init(bluetooth::common::MessageLoopThread* /*message_loop*/,
     return false;
   }
 
-  if (offload_enabled && offloading_hal_interface == nullptr) {
+  (void)offload_enabled;
+  if (use_hw_a2dp_offload() && offloading_hal_interface == nullptr) {
     offloading_hal_interface = new BluetoothAudioClientInterface(
             SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH, stream_callbacks);
     if (!offloading_hal_interface->IsValid()) {
@@ -202,7 +225,7 @@ bool setup_codec(const ahal_codec_configuration& config) {
     return false;
   }
 
-  if (provider::supports_codec(config.codec_config.codec_type)) {
+  if (use_hw_a2dp_offload() && provider::supports_codec(config.codec_config.codec_type)) {
     // The codec is supported in the provider info (AIDL v4).
     // In this case, the codec is offloaded, and the configuration passed
     // as A2dpStreamConfiguration to the UpdateAudioConfig() interface

@@ -22,6 +22,8 @@
 
 #include <vector>
 
+#include "btif/include/btif_av.h"
+#include "btif/include/btif_av_co.h"
 #include "client_interface_hidl.h"
 #include "codec_status_hidl.h"
 #include "osi/include/properties.h"
@@ -204,6 +206,26 @@ BluetoothAudioSinkClientInterface* active_hal_interface = nullptr;
 // initialized
 uint16_t remote_delay = 0;
 
+// The A2DP offload HAL has no LHDCv5 CodecConfiguration variant. Keep hardware
+// offload for the codecs it supports, but use the software encoder and PCM data
+// path when LHDCV5 is selected.
+static bool use_hw_a2dp_offload() {
+  if (!btif_av_is_a2dp_offload_enabled()) {
+    return false;
+  }
+
+  A2dpCodecConfig* a2dp_config = bta_av_get_a2dp_current_codec();
+  if (a2dp_config == nullptr ||
+      a2dp_config->getCodecConfig().codec_type != BTAV_A2DP_CODEC_INDEX_SOURCE_LHDCV5) {
+    return true;
+  }
+
+  log::info(
+      "LHDCV5 selected; using software encoding because the offload HAL has no "
+      "LHDC codec configuration");
+  return false;
+}
+
 }  // namespace
 
 bool update_codec_offloading_capabilities(
@@ -239,7 +261,8 @@ bool init(bluetooth::common::MessageLoopThread* message_loop,
     return false;
   }
 
-  if (offload_enabled) {
+  (void)offload_enabled;
+  if (use_hw_a2dp_offload()) {
     a2dp_sink = new A2dpTransport(SessionType::A2DP_HARDWARE_OFFLOAD_DATAPATH);
     offloading_hal_interface = new BluetoothAudioSinkClientInterface(a2dp_sink, message_loop);
     if (!offloading_hal_interface->IsValid()) {
@@ -308,7 +331,7 @@ bool setup_codec(const ::bluetooth::audio::a2dp::ahal_codec_configuration& confi
 
   // Compute the codec configuration for the hardware encoding session and
   // check if the parameters are supported.
-  if (codec::getHalCodecConfiguration(config, &codec_config)) {
+  if (use_hw_a2dp_offload() && codec::getHalCodecConfiguration(config, &codec_config)) {
     if (!is_hal_2_0_offloading()) {
       log::info("Switching BluetoothAudio HAL to Hardware");
       end_session();
